@@ -1,3 +1,4 @@
+
 import os
 import sqlite3
 import secrets
@@ -13,6 +14,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(APP_DIR, "cpps.sqlite3"))
+LETTERS = tuple("ABCDEFGHIJ")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
@@ -82,6 +84,12 @@ def init_db():
       correct TEXT NOT NULL CHECK(correct IN ('A','B','C','D')),
       question_type TEXT NOT NULL DEFAULT 'single',
       correct_answers TEXT NOT NULL DEFAULT '["A"]',
+      e TEXT NOT NULL DEFAULT '',
+      f TEXT NOT NULL DEFAULT '',
+      g TEXT NOT NULL DEFAULT '',
+      h TEXT NOT NULL DEFAULT '',
+      i TEXT NOT NULL DEFAULT '',
+      j TEXT NOT NULL DEFAULT '',
       FOREIGN KEY(test_id) REFERENCES tests(id) ON DELETE CASCADE
     );
 
@@ -120,28 +128,32 @@ def init_db():
     );
     """)
 
-    # Миграция существующей базы без удаления старых данных.
+    # Добавляем новые поля в существующую базу без удаления данных.
     columns = {
         row["name"]
         for row in conn.execute("PRAGMA table_info(questions)").fetchall()
     }
 
-    added_correct_answers = False
+    new_columns = {
+        "question_type": "TEXT NOT NULL DEFAULT 'single'",
+        "correct_answers": "TEXT NOT NULL DEFAULT '[\"A\"]'",
+        "e": "TEXT NOT NULL DEFAULT ''",
+        "f": "TEXT NOT NULL DEFAULT ''",
+        "g": "TEXT NOT NULL DEFAULT ''",
+        "h": "TEXT NOT NULL DEFAULT ''",
+        "i": "TEXT NOT NULL DEFAULT ''",
+        "j": "TEXT NOT NULL DEFAULT ''",
+    }
 
-    if "question_type" not in columns:
-        conn.execute("""
-            ALTER TABLE questions
-            ADD COLUMN question_type TEXT NOT NULL DEFAULT 'single'
-        """)
+    added_correct_answers = "correct_answers" not in columns
 
-    if "correct_answers" not in columns:
-        conn.execute("""
-            ALTER TABLE questions
-            ADD COLUMN correct_answers TEXT NOT NULL DEFAULT '["A"]'
-        """)
-        added_correct_answers = True
+    for column, definition in new_columns.items():
+        if column not in columns:
+            conn.execute(
+                f"ALTER TABLE questions ADD COLUMN {column} {definition}"
+            )
 
-    # Для старых вопросов переносим существующий правильный ответ.
+    # Для старых вопросов сохраняем ранее указанный правильный ответ.
     if added_correct_answers:
         old_questions = conn.execute(
             "SELECT id, correct FROM questions"
@@ -152,6 +164,18 @@ def init_db():
                 "UPDATE questions SET correct_answers=? WHERE id=?",
                 (json.dumps([question["correct"]]), question["id"])
             )
+
+    # Исправляем пустые значения, если они остались после старых версий.
+    old_questions = conn.execute("""
+        SELECT id, correct FROM questions
+        WHERE correct_answers IS NULL OR correct_answers=''
+    """).fetchall()
+
+    for question in old_questions:
+        conn.execute(
+            "UPDATE questions SET correct_answers=? WHERE id=?",
+            (json.dumps([question["correct"]]), question["id"])
+        )
 
     admin_name = os.environ.get("ADMIN_USERNAME", "admin").strip() or "admin"
     admin_password = os.environ.get("ADMIN_PASSWORD", "")
@@ -196,7 +220,10 @@ def protect_posts():
         if not token or not secrets.compare_digest(
             token, session.get("_csrf", "")
         ):
-            abort(400, "Сессия формы истекла. Обновите страницу и повторите действие.")
+            abort(
+                400,
+                "Сессия формы истекла. Обновите страницу и повторите действие."
+            )
 
 
 def current_user():
@@ -222,7 +249,6 @@ def login_required(fn):
             flash("Сначала войдите в аккаунт.", "warning")
             return redirect(url_for("login", next=request.path))
         return fn(*args, **kwargs)
-
     return wrapped
 
 
@@ -239,7 +265,6 @@ def admin_required(fn):
             abort(403)
 
         return fn(*args, **kwargs)
-
     return wrapped
 
 
@@ -253,21 +278,21 @@ def safe_int(value, default, low, high):
 
 
 def parse_correct_answers(question):
-    """Возвращает список правильных вариантов вопроса."""
+    """Возвращает правильные варианты A–J с поддержкой старых вопросов."""
     try:
-        answers = json.loads(question["correct_answers"])
+        answers = json.loads(question["correct_answers"] or "[]")
         if isinstance(answers, list):
             valid = [
                 answer for answer in answers
-                if answer in ("A", "B", "C", "D")
+                if answer in LETTERS
             ]
             if valid:
                 return sorted(set(valid))
     except (TypeError, ValueError, KeyError):
         pass
 
-    # Совместимость со старыми вопросами.
-    return [question["correct"]]
+    old_answer = question["correct"]
+    return [old_answer] if old_answer in LETTERS else ["A"]
 
 
 @app.route("/")
@@ -486,18 +511,23 @@ def take_test(test_id):
     score = 0
 
     for question in questions:
+        available = {
+            letter
+            for letter in LETTERS
+            if question[letter.lower()]
+            and str(question[letter.lower()]).strip()
+        }
+
         selected = request.form.getlist(f"q_{question['id']}")
         selected = sorted(set(
             answer for answer in selected
-            if answer in ("A", "B", "C", "D")
+            if answer in available
         ))
 
         correct = parse_correct_answers(question)
+        answers[str(question["id"])] = selected
 
-        if selected:
-            answers[str(question["id"])] = selected
-
-        # Балл начисляется, только если наборы ответов полностью совпадают.
+        # Нужны все правильные варианты и никаких лишних.
         if selected == correct:
             score += 1
 
@@ -524,7 +554,7 @@ def take_test(test_id):
         score,
         total,
         passed,
-        json.dumps(answers),
+        json.dumps(answers, ensure_ascii=False),
         attempt["id"]
     ))
 
@@ -661,43 +691,61 @@ def edit_test(test_id):
 
     if request.method == "POST":
         prompt = request.form.get("prompt", "").strip()
-        options = [
-            request.form.get(key, "").strip()
-            for key in ("a", "b", "c", "d")
-        ]
+
+        options = {
+            letter: request.form.get(letter.lower(), "").strip()
+            for letter in LETTERS
+        }
 
         question_type = request.form.get("question_type", "single")
         if question_type not in ("single", "multiple"):
             question_type = "single"
 
-        correct_answers = request.form.getlist("correct")
         correct_answers = sorted(set(
-            answer for answer in correct_answers
-            if answer in ("A", "B", "C", "D")
+            answer for answer in request.form.getlist("correct")
+            if answer in LETTERS and options[answer]
         ))
 
         if question_type == "single":
             correct_answers = correct_answers[:1]
 
-        if not prompt or not all(options) or not correct_answers:
-            flash(
-                "Заполните вопрос, все четыре ответа и выберите правильный вариант.",
-                "danger"
-            )
+        if not prompt:
+            flash("Введите текст вопроса.", "danger")
+        elif not all(options[x] for x in "ABCD"):
+            flash("Обязательно заполните варианты A, B, C и D.", "danger")
+        elif not correct_answers:
+            flash("Отметьте хотя бы один правильный ответ.", "danger")
         else:
+            # Поле correct сохраняет совместимость со старой схемой.
+            # Если правильный вариант только E–J, туда записываем A,
+            # а настоящий ответ хранится в correct_answers.
+            legacy_correct = next(
+                (letter for letter in correct_answers if letter in "ABCD"),
+                "A"
+            )
+
             conn.execute("""
                 INSERT INTO questions(
                     test_id,prompt,a,b,c,d,correct,
-                    question_type,correct_answers
+                    question_type,correct_answers,e,f,g,h,i,j
                 )
-                VALUES(?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 test_id,
                 prompt,
-                *options,
-                correct_answers[0],
+                options["A"],
+                options["B"],
+                options["C"],
+                options["D"],
+                legacy_correct,
                 question_type,
-                json.dumps(correct_answers)
+                json.dumps(correct_answers, ensure_ascii=False),
+                options["E"],
+                options["F"],
+                options["G"],
+                options["H"],
+                options["I"],
+                options["J"]
             ))
 
             conn.commit()
@@ -714,9 +762,7 @@ def edit_test(test_id):
     questions = [
         {
             **dict(question),
-            "correct_display": ", ".join(
-                parse_correct_answers(question)
-            )
+            "correct_display": ", ".join(parse_correct_answers(question))
         }
         for question in questions
     ]
