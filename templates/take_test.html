@@ -12,7 +12,9 @@
 
     <div class="timer-box">
         <small>ОСТАЛОСЬ ВРЕМЕНИ</small>
-        <strong id="timer" data-seconds="{{ test.duration_minutes * 60 }}">{{ test.duration_minutes }}:00</strong>
+        <strong id="timer" data-seconds="{{ test.duration_minutes * 60 }}">
+            {{ test.duration_minutes }}:00
+        </strong>
     </div>
 </div>
 
@@ -34,16 +36,29 @@
         <h3>{{ q.prompt }}</h3>
 
         <div class="answers">
-            {% for letter, text in [('A', q.a), ('B', q.b), ('C', q.c), ('D', q.d)] %}
-            <label class="answer">
-                <input
-                    type="{{ 'checkbox' if q.question_type == 'multiple' else 'radio' }}"
-                    name="q_{{ q.id }}"
-                    value="{{ letter }}"
-                >
-                <span class="answer-letter">{{ letter }}</span>
-                <span>{{ text }}</span>
-            </label>
+            {% for letter, text in [
+                ('A', q.a),
+                ('B', q.b),
+                ('C', q.c),
+                ('D', q.d),
+                ('E', q.e),
+                ('F', q.f),
+                ('G', q.g),
+                ('H', q.h),
+                ('I', q.i),
+                ('J', q.j)
+            ] %}
+                {% if text %}
+                <label class="answer">
+                    <input
+                        type="{{ 'checkbox' if q.question_type == 'multiple' else 'radio' }}"
+                        name="q_{{ q.id }}"
+                        value="{{ letter }}"
+                    >
+                    <span class="answer-letter">{{ letter }}</span>
+                    <span>{{ text }}</span>
+                </label>
+                {% endif %}
             {% endfor %}
         </div>
     </section>
