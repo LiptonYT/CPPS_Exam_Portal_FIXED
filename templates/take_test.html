@@ -1,118 +1,51 @@
-
-{% extends "base.html" %}
-{% block title %}{{ test.title }} — ЦППС{% endblock %}
-
-{% block content %}
-<div class="exam-head">
-    <div>
-        <div class="eyebrow">ЦППС / АТТЕСТАЦИЯ</div>
-        <h1>{{ test.title }}</h1>
-        <p>{{ test.description }}</p>
-    </div>
-
-    <div class="timer-box">
-        <small>ОСТАЛОСЬ ВРЕМЕНИ</small>
-        <strong id="timer"
-                data-seconds="{{ test.duration_minutes * 60 }}">
-            {{ test.duration_minutes }}:00
-        </strong>
-    </div>
-</div>
-
-<div class="notice warning">
-    После отправки ответы нельзя изменить.
-    По истечении времени экзамен будет отправлен автоматически.
-</div>
-
-<form method="post" id="exam-form" class="exam-form">
-    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-    <input type="hidden" name="attempt_id" value="{{ attempt_id }}">
-
-    {% for q in questions %}
-    <section class="question panel">
-        <div class="q-label">
-            ВОПРОС {{ loop.index }}
-            <span>{{ loop.index }} / {{ questions|length }}</span>
-        </div>
-
-        <h3>{{ q.prompt }}</h3>
-
-        <div class="answers">
-            {% for letter, text in [
-                ('A', q.a),
-                ('B', q.b),
-                ('C', q.c),
-                ('D', q.d),
-                ('E', q.e),
-                ('F', q.f),
-                ('G', q.g),
-                ('H', q.h),
-                ('I', q.i),
-                ('J', q.j)
-            ] %}
-                {% if text %}
-                <label class="answer">
-                    <input
-                        type="{{ 'checkbox' if q.question_type == 'multiple' else 'radio' }}"
-                        name="q_{{ q.id }}"
-                        value="{{ letter }}"
-                    >
-                    <span class="answer-letter">{{ letter }}</span>
-                    <span>{{ text }}</span>
-                </label>
-                {% endif %}
-            {% endfor %}
-        </div>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ test.title }} — ЦППС | Экзамены курсантов</title>
+  <style>
+    :root{--bg:#0b1018;--panel:#151d29;--panel2:#101722;--gold:#eab447;--text:#eef2f7;--muted:#a7b0bf;--line:#303b4c;--red:#f06464}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#1a2b40 0,#0b1018 55%);color:var(--text);font:16px/1.5 Arial,sans-serif;padding:24px}
+    .wrap{max-width:900px;margin:0 auto}.top,.card{background:rgba(21,29,41,.97);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 12px 35px #0003}
+    h1,h2{margin:0 0 12px}h1{font-size:clamp(24px,4vw,34px)}h2{font-size:20px;color:var(--gold)}p,.muted{color:var(--muted)}.pill{display:inline-block;border:1px solid #8d6a2b;color:var(--gold);padding:5px 10px;border-radius:30px;font-size:13px}
+    label{display:block;font-weight:700;margin:14px 0 7px}input[type=text]{width:100%;padding:13px;border:1px solid #3a4658;border-radius:9px;background:#0c121b;color:white;font:inherit}input:focus{outline:2px solid #eab44766;border-color:var(--gold)}
+    .question{padding:18px 0;border-top:1px solid var(--line)}.question:first-of-type{border-top:0}.qtitle{font-weight:700;margin:0 0 12px}.option{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;margin:7px 0;border:1px solid #2c3747;border-radius:9px;cursor:pointer;background:var(--panel2)}.option:hover{border-color:var(--gold)}.option input{margin-top:5px;accent-color:var(--gold)}
+    button{border:0;border-radius:10px;padding:14px 20px;background:var(--gold);color:#141414;font-weight:800;font-size:16px;cursor:pointer}button:hover{filter:brightness(1.08)}.timer{font-size:18px;font-weight:800;color:var(--gold)}.flash{padding:12px;border-radius:8px;background:#402426;color:#ffd6d6;margin-bottom:12px}
+    @media(max-width:600px){body{padding:12px}.top,.card{padding:16px}}
+  </style>
+</head>
+<body><main class="wrap">
+  <header class="top"><span class="pill">ЦППС • ЭКЗАМЕН</span><h1>{{ test.title }}</h1><p>{{ test.description or 'Внимательно прочитайте вопросы и выберите ответы.' }}</p><div class="timer">Осталось времени: <span id="time">{{ test.duration_minutes }}:00</span></div></header>
+  {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
+  <form id="exam-form" method="post" autocomplete="off">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="attempt_id" value="{{ attempt_id }}">
+    <section class="card">
+      <h2>Данные проведения экзамена</h2>
+      <label for="cadet_full_name">Имя и фамилия курсанта *</label><input id="cadet_full_name" name="cadet_full_name" type="text" maxlength="120" placeholder="Например: Иван Иванов" required>
+      <label for="cadet_static">Статик курсанта *</label><input id="cadet_static" name="cadet_static" type="text" maxlength="40" placeholder="Например: 123-456" required>
+      <label for="examiner_full_name">Имя и фамилия экзаменатора *</label><input id="examiner_full_name" name="examiner_full_name" type="text" maxlength="120" placeholder="Например: Пётр Петров" required>
     </section>
-    {% endfor %}
-
-    <button class="btn btn-wide submit-exam"
-            type="submit"
-            onclick="return confirm('Отправить экзамен? После отправки ответы нельзя изменить.')">
-        Завершить и отправить ответы →
-    </button>
-</form>
-{% endblock %}
-
-{% block scripts %}
+    <section class="card"><h2>Вопросы экзамена</h2>
+      {% for q in questions %}
+      <div class="question"><p class="qtitle">{{ loop.index }}. {{ q.prompt }}</p>
+        {% for letter in ['A','B','C','D'] %}
+          {% set key = letter|lower %}
+          <label class="option"><input type="radio" name="q_{{ q.id }}" value="{{ letter }}"><span><b>{{ letter }}.</b> {{ q[key] }}</span></label>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </section>
+    <button type="submit" id="submit-btn">Завершить экзамен</button>
+  </form>
+</main>
 <script>
-(() => {
-    const timer = document.getElementById('timer');
-    const form = document.getElementById('exam-form');
-
-    let left = Number(timer.dataset.seconds);
-    let submitted = false;
-
-    function tick() {
-        const minutes = Math.floor(left / 60);
-        const seconds = left % 60;
-
-        timer.textContent =
-            String(minutes).padStart(2, '0') + ':' +
-            String(seconds).padStart(2, '0');
-
-        if (left <= 0) {
-            if (!submitted) {
-                submitted = true;
-                form.submit();
-            }
-            return;
-        }
-
-        left--;
-    }
-
-    form.addEventListener('submit', () => {
-        submitted = true;
-    });
-
-    tick();
-
-    setInterval(() => {
-        if (!submitted) {
-            tick();
-        }
-    }, 1000);
+(function(){
+  let remaining = {{ test.duration_minutes|int }} * 60;
+  const display = document.getElementById('time');
+  const form = document.getElementById('exam-form');
+  const btn = document.getElementById('submit-btn');
+  function tick(){const m=Math.floor(remaining/60),s=remaining%60;display.textContent=m+':'+String(s).padStart(2,'0');if(remaining<=0){btn.disabled=true;btn.textContent='Время вышло — отправка…';form.querySelectorAll('[required]').forEach(x=>x.required=false);form.submit();return;}remaining--;}
+  tick();setInterval(tick,1000);
+  form.addEventListener('submit',function(){btn.disabled=true;btn.textContent='Сохраняем результат…';});
 })();
-</script>
-{% endblock %}
+</script></body></html>
