@@ -1,0 +1,22 @@
+services:
+ - type: web
+   name: cpps-exam-portal
+   runtime: python
+   buildCommand: pip install -r requirements.txt
+   startCommand: gunicorn app:app
+   plan: starter
+   envVars:
+     - key: SECRET_KEY
+       generateValue: true
+     - key: ADMIN_USERNAME
+       value: admin
+     - key: ADMIN_PASSWORD
+       sync: false
+     - key: DB_PATH
+       value: /var/data/cpps.sqlite3
+     - key: COOKIE_SECURE
+       value: "1"
+   disk:
+     name: cpps-data
+     mountPath: /var/data
+     sizeGB: 1
