@@ -1,112 +1,110 @@
-{% extends "base.html" %}
-{% block content %}
 
+{% extends "base.html" %}
+{% block title %}Редактор экзамена — ЦППС{% endblock %}
+
+{% block content %}
 <div class="page-head">
-    <div class="eyebrow">АДМИН-ПАНЕЛЬ / РЕДАКТОР</div>
+    <div class="eyebrow">ЦППС / РЕДАКТОР ЭКЗАМЕНОВ</div>
     <h1>{{ test.title }}</h1>
-    <p>Настрой экзамен и добавь вопросы с четырьмя вариантами ответа.</p>
+    <p>Управление вопросами и вариантами ответов.</p>
 </div>
 
-<div class="admin-grid">
+<section class="panel">
+    <h2>Настройки экзамена</h2>
 
-    <section class="panel">
-        <h2>Настройки экзамена</h2>
+    <form method="post"
+          action="{{ url_for('test_settings', test_id=test.id) }}"
+          class="stack">
 
-        <form method="post"
-              action="{{ url_for('test_settings', test_id=test.id) }}"
-              class="stack">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
 
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <label>Название экзамена
+            <input name="title" value="{{ test.title }}" required>
+        </label>
 
-            <label>
-                Название
-                <input name="title" value="{{ test.title }}" required>
+        <label>Описание
+            <textarea name="description" rows="3">{{ test.description }}</textarea>
+        </label>
+
+        <div class="form-row">
+            <label>Время (минуты)
+                <input type="number" name="duration" min="1" max="180"
+                       value="{{ test.duration_minutes }}" required>
             </label>
 
-            <label>
-                Описание
-                <textarea name="description" rows="3">{{ test.description }}</textarea>
+            <label>Проходной балл (%)
+                <input type="number" name="pass_percent" min="1" max="100"
+                       value="{{ test.pass_percent }}" required>
             </label>
 
-            <div class="form-row">
-                <label>
-                    Время (мин.)
-                    <input type="number" name="duration" min="1" max="180"
-                           value="{{ test.duration_minutes }}">
-                </label>
-
-                <label>
-                    Проходной балл %
-                    <input type="number" name="pass_percent" min="1" max="100"
-                           value="{{ test.pass_percent }}">
-                </label>
-            </div>
-
-            <label>
-                Максимум попыток
+            <label>Количество попыток
                 <input type="number" name="max_attempts" min="1" max="20"
-                       value="{{ test.max_attempts }}">
+                       value="{{ test.max_attempts }}" required>
             </label>
+        </div>
 
-            <label class="checkline">
-                <input type="checkbox" name="published"
-                       {% if test.published %}checked{% endif %}>
-                Опубликовать экзамен
-            </label>
+        <label class="checkline">
+            <input type="checkbox" name="published"
+                   {% if test.published %}checked{% endif %}>
+            Опубликовать экзамен
+        </label>
 
-            <button class="btn">Сохранить настройки</button>
-        </form>
-    </section>
+        <button class="btn" type="submit">Сохранить настройки</button>
+    </form>
+</section>
 
-    <section class="panel">
-        <h2>Добавить вопрос</h2>
+<section class="panel">
+    <h2>Добавить вопрос</h2>
 
-        <form method="post" class="stack">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <form method="post" class="stack" id="question-form">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
 
-            <label>
-                Текст вопроса
-                <textarea name="prompt" required rows="3"
-                          placeholder="Введите формулировку вопроса"></textarea>
-            </label>
+        <label>Текст вопроса
+            <textarea name="prompt" rows="3"
+                      placeholder="Введите вопрос..."
+                      required></textarea>
+        </label>
 
-            {% for letter in ['a', 'b', 'c', 'd'] %}
-            <label>
-                Вариант {{ letter|upper }}
-                <input name="{{ letter }}" required
-                       placeholder="Текст ответа {{ letter|upper }}">
-            </label>
-            {% endfor %}
+        {% for letter in ['A','B','C','D','E','F','G','H','I','J'] %}
+        <label>
+            Вариант {{ letter }}
+            <input
+                type="text"
+                name="{{ letter|lower }}"
+                placeholder="Введите вариант {{ letter }}..."
+                {% if letter in ['A','B','C','D'] %}required{% endif %}
+            >
+        </label>
+        {% endfor %}
 
-            <label>
-                Тип вопроса
-                <select name="question_type" id="question-type">
-                    <option value="single">Один правильный ответ</option>
-                    <option value="multiple">Несколько правильных ответов</option>
-                </select>
-            </label>
+        <label>Тип вопроса
+            <select name="question_type" id="question-type">
+                <option value="single">Один правильный ответ</option>
+                <option value="multiple">Несколько правильных ответов</option>
+            </select>
+        </label>
 
-            <label>Правильные ответы</label>
+        <div>
+            <strong>Выберите правильные ответы</strong>
+            <p class="muted">
+                Для одного ответа отметьте одну букву.
+                Для нескольких ответов выберите все подходящие варианты.
+            </p>
 
-            <div class="stack" id="correct-options">
-                {% for letter in ['A', 'B', 'C', 'D'] %}
-                <label class="checkline">
-                    <input
-                        type="radio"
-                        name="correct"
-                        value="{{ letter }}"
-                        {% if loop.first %}checked{% endif %}
-                    >
-                    Вариант {{ letter }}
+            <div class="form-row" style="flex-wrap:wrap; gap:12px;">
+                {% for letter in ['A','B','C','D','E','F','G','H','I','J'] %}
+                <label class="checkline"
+                       style="display:flex; align-items:center; gap:6px;">
+                    <input type="checkbox" name="correct" value="{{ letter }}">
+                    {{ letter }}
                 </label>
                 {% endfor %}
             </div>
+        </div>
 
-            <button class="btn">Добавить вопрос +</button>
-        </form>
-    </section>
-
-</div>
+        <button class="btn" type="submit">Добавить вопрос +</button>
+    </form>
+</section>
 
 <section class="section-head">
     <div>
@@ -116,43 +114,49 @@
 </section>
 
 {% for q in questions %}
-<article class="question-row panel">
-
-    <div>
-        <span class="tag">ВОПРОС #{{ loop.index }}</span>
-        <h3>{{ q.prompt }}</h3>
-
-        <p class="muted">
-            A. {{ q.a }} ·
-            B. {{ q.b }} ·
-            C. {{ q.c }} ·
-            D. {{ q.d }}
-        </p>
+<section class="question panel">
+    <div class="q-label">
+        ВОПРОС {{ loop.index }}
     </div>
 
-    <div class="question-actions">
-        <span class="status good">
-            {% if q.question_type == 'multiple' %}
-                Множественный ответ:
-            {% else %}
-                Одиночный ответ:
+    <h3>{{ q.prompt }}</h3>
+
+    <div class="answers">
+        {% for letter in ['A','B','C','D','E','F','G','H','I','J'] %}
+            {% set option = q[letter|lower] %}
+            {% if option %}
+            <div class="answer">
+                <span class="answer-letter">{{ letter }}</span>
+                <span>{{ option }}</span>
+            </div>
             {% endif %}
-            {{ q.correct_display }}
-        </span>
-
-        <form method="post"
-              action="{{ url_for('delete_question', question_id=q.id) }}"
-              onsubmit="return confirm('Удалить вопрос?')">
-
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button class="btn btn-danger btn-small">Удалить</button>
-        </form>
+        {% endfor %}
     </div>
 
-</article>
+    <p>
+        <strong>Правильные ответы:</strong>
+        {{ q.correct_display }}
+    </p>
+
+    <p class="muted">
+        {% if q.question_type == 'multiple' %}
+            Несколько правильных ответов
+        {% else %}
+            Один правильный ответ
+        {% endif %}
+    </p>
+
+    <form method="post"
+          action="{{ url_for('delete_question', question_id=q.id) }}"
+          onsubmit="return confirm('Удалить этот вопрос?')">
+
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button class="btn btn-danger" type="submit">Удалить вопрос</button>
+    </form>
+</section>
 {% else %}
-<div class="empty compact">
-    Пока нет вопросов. Добавьте первый в форме выше.
+<div class="empty">
+    В этом экзамене пока нет вопросов.
 </div>
 {% endfor %}
 
@@ -162,29 +166,62 @@
 
 <script>
 (() => {
+    const form = document.getElementById('question-form');
     const typeSelect = document.getElementById('question-type');
-    const options = document.querySelectorAll(
-        '#correct-options input[name="correct"]'
-    );
+    const checks = [...form.querySelectorAll('input[name="correct"]')];
 
-    function updateAnswerType() {
-        const multiple = typeSelect.value === 'multiple';
+    function updateAnswerMode() {
+        if (typeSelect.value !== 'single') return;
 
-        options.forEach(option => {
-            option.type = multiple ? 'checkbox' : 'radio';
+        const checked = checks.filter(item => item.checked);
+
+        checked.slice(1).forEach(item => {
+            item.checked = false;
         });
-
-        if (
-            !multiple &&
-            !Array.from(options).some(option => option.checked)
-        ) {
-            options[0].checked = true;
-        }
     }
 
-    typeSelect.addEventListener('change', updateAnswerType);
-    updateAnswerType();
+    typeSelect.addEventListener('change', updateAnswerMode);
+
+    checks.forEach(check => {
+        check.addEventListener('change', () => {
+            if (typeSelect.value === 'single' && check.checked) {
+                checks.forEach(other => {
+                    if (other !== check) {
+                        other.checked = false;
+                    }
+                });
+            }
+        });
+    });
+
+    form.addEventListener('submit', event => {
+        const selected = checks.filter(item => item.checked);
+
+        if (selected.length === 0) {
+            event.preventDefault();
+            alert('Отметьте хотя бы один правильный ответ.');
+            return;
+        }
+
+        const selectedLetters = selected.map(item => item.value);
+
+        for (const letter of selectedLetters) {
+            const field = form.querySelector(
+                'input[name="' + letter.toLowerCase() + '"]'
+            );
+
+            if (!field || !field.value.trim()) {
+                event.preventDefault();
+                alert('Заполните вариант ' + letter + ', который отмечен правильным.');
+                return;
+            }
+        }
+
+        if (typeSelect.value === 'single' && selected.length > 1) {
+            event.preventDefault();
+            alert('Для этого вопроса выберите только один правильный ответ.');
+        }
+    });
 })();
 </script>
-
 {% endblock %}
