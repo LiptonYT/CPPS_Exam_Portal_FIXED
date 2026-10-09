@@ -1,4 +1,4 @@
-
+```html
 <!doctype html>
 <html lang="ru">
 <head>
@@ -8,60 +8,6 @@
     <title>{% block title %}ЦППС | Экзамены курсантов{% endblock %}</title>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-    <style>
-        .nav-links {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-
-        .nav-links a {
-            text-decoration: none;
-            transition: background .2s, color .2s;
-        }
-
-        .nav-links .admin-link {
-            color: #f5c542;
-            font-weight: 700;
-            border: 1px solid rgba(245, 197, 66, .45);
-            border-radius: 8px;
-            padding: 9px 13px;
-            background: rgba(245, 197, 66, .08);
-        }
-
-        .nav-links .admin-link:hover {
-            background: #f5c542;
-            color: #171717;
-        }
-
-        .nav-user {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .nav-user form {
-            margin: 0;
-        }
-
-        @media (max-width: 760px) {
-            header.nav {
-                flex-wrap: wrap;
-                gap: 14px;
-            }
-
-            .nav-links {
-                order: 3;
-                width: 100%;
-            }
-
-            .nav-user {
-                margin-left: auto;
-            }
-        }
-    </style>
 </head>
 
 <body>
@@ -76,16 +22,15 @@
             </span>
         </a>
 
-        <nav class="nav-links">
+        <nav>
+            <a href="{{ url_for('index') }}">Главная</a>
             <a href="{{ url_for('tests_list') }}">Экзамены</a>
 
             {% if current_user %}
                 <a href="{{ url_for('dashboard') }}">Кабинет</a>
 
                 {% if current_user.role == 'admin' %}
-                    <a class="admin-link" href="{{ url_for('admin') }}">
-                        ⚙ Админ-панель
-                    </a>
+                    <a href="{{ url_for('admin') }}">Админ-панель</a>
                 {% endif %}
             {% endif %}
         </nav>
@@ -100,7 +45,7 @@
                         name="_csrf"
                         value="{{ csrf_token() }}"
                     >
-                    <button class="btn btn-small btn-ghost" type="submit">
+                    <button type="submit" class="btn btn-small btn-ghost">
                         Выйти
                     </button>
                 </form>
@@ -144,3 +89,4 @@
     {% block scripts %}{% endblock %}
 </body>
 </html>
+```
