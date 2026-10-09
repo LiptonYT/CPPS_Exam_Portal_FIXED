@@ -1,4 +1,3 @@
-
 import os
 import sqlite3
 import secrets
@@ -13,9 +12,7 @@ from flask import (
 from werkzeug.security import generate_password_hash, check_password_hash
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.environ.get(
-    "DB_PATH", os.path.join(APP_DIR, "cpps.sqlite3")
-)
+DB_PATH = os.environ.get("DB_PATH", os.path.join(APP_DIR, "cpps.sqlite3"))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
@@ -49,6 +46,7 @@ def close_db(_=None):
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
 
     conn.executescript("""
@@ -83,7 +81,7 @@ def init_db():
       d TEXT NOT NULL,
       correct TEXT NOT NULL CHECK(correct IN ('A','B','C','D')),
       question_type TEXT NOT NULL DEFAULT 'single',
-      correct_answers TEXT NOT NULL DEFAULT '',
+      correct_answers TEXT NOT NULL DEFAULT '["A"]',
       FOREIGN KEY(test_id) REFERENCES tests(id) ON DELETE CASCADE
     );
 
@@ -122,11 +120,13 @@ def init_db():
     );
     """)
 
-    # Миграция существующей базы без удаления старых вопросов.
+    # Миграция существующей базы без удаления старых данных.
     columns = {
-        row[1]
+        row["name"]
         for row in conn.execute("PRAGMA table_info(questions)").fetchall()
     }
+
+    added_correct_answers = False
 
     if "question_type" not in columns:
         conn.execute("""
@@ -137,41 +137,41 @@ def init_db():
     if "correct_answers" not in columns:
         conn.execute("""
             ALTER TABLE questions
-            ADD COLUMN correct_answers TEXT NOT NULL DEFAULT ''
+            ADD COLUMN correct_answers TEXT NOT NULL DEFAULT '["A"]'
         """)
+        added_correct_answers = True
 
-    old_questions = conn.execute("""
-        SELECT id, correct, correct_answers
-        FROM questions
-        WHERE correct_answers IS NULL OR correct_answers = ''
-    """).fetchall()
+    # Для старых вопросов переносим существующий правильный ответ.
+    if added_correct_answers:
+        old_questions = conn.execute(
+            "SELECT id, correct FROM questions"
+        ).fetchall()
 
-    for qid, correct, _ in old_questions:
-        conn.execute(
-            "UPDATE questions SET correct_answers=? WHERE id=?",
-            (json.dumps([correct]), qid)
-        )
+        for question in old_questions:
+            conn.execute(
+                "UPDATE questions SET correct_answers=? WHERE id=?",
+                (json.dumps([question["correct"]]), question["id"])
+            )
 
-    # Создание администратора через Environment Variables,
-    # если администратора в базе ещё нет.
     admin_name = os.environ.get("ADMIN_USERNAME", "admin").strip() or "admin"
     admin_password = os.environ.get("ADMIN_PASSWORD", "")
 
-    existing_admin = conn.execute(
+    existing = conn.execute(
         "SELECT id FROM users WHERE role='admin' LIMIT 1"
     ).fetchone()
 
-    if not existing_admin and admin_password:
-        conn.execute("""
-            INSERT OR IGNORE INTO users
-            (username, password_hash, role, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (
-            admin_name,
-            generate_password_hash(admin_password),
-            "admin",
-            now()
-        ))
+    if not existing and admin_password:
+        conn.execute(
+            """INSERT OR IGNORE INTO users
+            (username,password_hash,role,created_at)
+            VALUES(?,?,?,?)""",
+            (
+                admin_name,
+                generate_password_hash(admin_password),
+                "admin",
+                now()
+            )
+        )
 
     conn.commit()
     conn.close()
@@ -222,51 +222,52 @@ def login_required(fn):
             flash("Сначала войдите в аккаунт.", "warning")
             return redirect(url_for("login", next=request.path))
         return fn(*args, **kwargs)
+
     return wrapped
 
 
 def admin_required(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):
-        u = current_user()
+        user = current_user()
 
-        if not u:
+        if not user:
             flash("Войдите в аккаунт администратора.", "warning")
             return redirect(url_for("login"))
 
-        if u["role"] != "admin":
+        if user["role"] != "admin":
             abort(403)
 
         return fn(*args, **kwargs)
+
     return wrapped
 
 
 def safe_int(value, default, low, high):
     try:
-        n = int(value)
+        number = int(value)
     except (TypeError, ValueError):
         return default
-    return max(low, min(high, n))
+
+    return max(low, min(high, number))
 
 
-def correct_list_for_question(q):
+def parse_correct_answers(question):
+    """Возвращает список правильных вариантов вопроса."""
     try:
-        answers = json.loads(q["correct_answers"] or "[]")
-    except (ValueError, TypeError):
-        answers = []
+        answers = json.loads(question["correct_answers"])
+        if isinstance(answers, list):
+            valid = [
+                answer for answer in answers
+                if answer in ("A", "B", "C", "D")
+            ]
+            if valid:
+                return sorted(set(valid))
+    except (TypeError, ValueError, KeyError):
+        pass
 
-    if not isinstance(answers, list):
-        answers = []
-
-    answers = [
-        a for a in answers
-        if a in ("A", "B", "C", "D")
-    ]
-
-    if not answers:
-        answers = [q["correct"]]
-
-    return sorted(set(answers))
+    # Совместимость со старыми вопросами.
+    return [question["correct"]]
 
 
 @app.route("/")
@@ -283,7 +284,8 @@ def index():
     internships = db().execute("""
         SELECT * FROM internships
         WHERE status='active'
-        ORDER BY id DESC LIMIT 4
+        ORDER BY id DESC
+        LIMIT 4
     """).fetchall()
 
     return render_template(
@@ -312,15 +314,17 @@ def register():
             flash("Пароль должен содержать минимум 8 символов.", "danger")
         else:
             try:
-                db().execute("""
-                    INSERT INTO users(username,password_hash,role,created_at)
-                    VALUES(?,?,?,?)
-                """, (
-                    username,
-                    generate_password_hash(password),
-                    "cadet",
-                    now()
-                ))
+                db().execute(
+                    """INSERT INTO users
+                    (username,password_hash,role,created_at)
+                    VALUES(?,?,?,?)""",
+                    (
+                        username,
+                        generate_password_hash(password),
+                        "cadet",
+                        now()
+                    )
+                )
                 db().commit()
                 flash("Аккаунт создан. Теперь войдите.", "success")
                 return redirect(url_for("login"))
@@ -347,7 +351,7 @@ def login():
             csrf_token()
 
             next_url = request.args.get("next", "")
-            if next_url.startswith("/") and not next_url.startswith("//"):
+            if next_url.startswith("/"):
                 return redirect(next_url)
 
             return redirect(url_for("dashboard"))
@@ -368,14 +372,16 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    u = current_user()
+    user = current_user()
 
     attempts = db().execute("""
         SELECT a.*,t.title
-        FROM attempts a JOIN tests t ON t.id=a.test_id
+        FROM attempts a
+        JOIN tests t ON t.id=a.test_id
         WHERE a.user_id=?
-        ORDER BY a.id DESC LIMIT 10
-    """, (u["id"],)).fetchall()
+        ORDER BY a.id DESC
+        LIMIT 10
+    """, (user["id"],)).fetchall()
 
     assignments = db().execute("""
         SELECT ia.*,i.title,i.details
@@ -383,7 +389,7 @@ def dashboard():
         JOIN internships i ON i.id=ia.internship_id
         WHERE ia.user_id=?
         ORDER BY ia.id DESC
-    """, (u["id"],)).fetchall()
+    """, (user["id"],)).fetchall()
 
     return render_template(
         "dashboard.html",
@@ -397,7 +403,8 @@ def tests_list():
     tests = db().execute("""
         SELECT t.*,
         (SELECT COUNT(*) FROM questions q WHERE q.test_id=t.id) qcount
-        FROM tests t WHERE t.published=1
+        FROM tests t
+        WHERE t.published=1
         ORDER BY t.id DESC
     """).fetchall()
 
@@ -420,7 +427,8 @@ def take_test(test_id):
     user = current_user()
 
     used = conn.execute("""
-        SELECT COUNT(*) n FROM attempts
+        SELECT COUNT(*) n
+        FROM attempts
         WHERE user_id=? AND test_id=? AND finished_at IS NOT NULL
     """, (user["id"], test_id)).fetchone()["n"]
 
@@ -430,8 +438,7 @@ def take_test(test_id):
             return redirect(url_for("tests_list"))
 
         questions = conn.execute("""
-            SELECT id,prompt,a,b,c,d,question_type
-            FROM questions
+            SELECT * FROM questions
             WHERE test_id=?
             ORDER BY id
         """, (test_id,)).fetchall()
@@ -454,14 +461,14 @@ def take_test(test_id):
             attempt_id=cur.lastrowid
         )
 
-    attempt_id = safe_int(
-        request.form.get("attempt_id"), 0, 1, 2**31 - 1
-    )
-
     attempt = conn.execute("""
         SELECT * FROM attempts
         WHERE id=? AND user_id=? AND test_id=? AND finished_at IS NULL
-    """, (attempt_id, user["id"], test_id)).fetchone()
+    """, (
+        safe_int(request.form.get("attempt_id"), 0, 1, 2**31 - 1),
+        user["id"],
+        test_id
+    )).fetchone()
 
     if not attempt:
         abort(400, "Попытка уже завершена или не найдена.")
@@ -469,36 +476,40 @@ def take_test(test_id):
     started = datetime.fromisoformat(attempt["started_at"])
     elapsed = (datetime.now(timezone.utc) - started).total_seconds()
 
-    questions = conn.execute(
-        "SELECT * FROM questions WHERE test_id=? ORDER BY id",
-        (test_id,)
-    ).fetchall()
+    questions = conn.execute("""
+        SELECT * FROM questions
+        WHERE test_id=?
+        ORDER BY id
+    """, (test_id,)).fetchall()
 
     answers = {}
     score = 0
 
-    for q in questions:
-        selected = request.form.getlist(f"q_{q['id']}")
+    for question in questions:
+        selected = request.form.getlist(f"q_{question['id']}")
         selected = sorted(set(
-            a for a in selected
-            if a in ("A", "B", "C", "D")
+            answer for answer in selected
+            if answer in ("A", "B", "C", "D")
         ))
 
+        correct = parse_correct_answers(question)
+
         if selected:
-            answers[str(q["id"])] = selected
+            answers[str(question["id"])] = selected
 
-        expected = correct_list_for_question(q)
-
-        if selected == expected:
+        # Балл начисляется, только если наборы ответов полностью совпадают.
+        if selected == correct:
             score += 1
 
     total = len(questions)
     percent = round(score * 100 / total) if total else 0
 
-    in_time = elapsed <= test["duration_minutes"] * 60 + 10
-    passed = int(percent >= test["pass_percent"] and in_time)
+    passed = int(
+        percent >= test["pass_percent"]
+        and elapsed <= test["duration_minutes"] * 60 + 10
+    )
 
-    if not in_time:
+    if elapsed > test["duration_minutes"] * 60 + 10:
         flash(
             "Время вышло. Результат сохранён, но экзамен не засчитан.",
             "warning"
@@ -525,18 +536,19 @@ def take_test(test_id):
 @app.route("/result/<int:attempt_id>")
 @login_required
 def attempt_result(attempt_id):
-    u = current_user()
+    user = current_user()
 
     attempt = db().execute("""
         SELECT a.*,t.title,t.pass_percent
-        FROM attempts a JOIN tests t ON t.id=a.test_id
+        FROM attempts a
+        JOIN tests t ON t.id=a.test_id
         WHERE a.id=?
     """, (attempt_id,)).fetchone()
 
     if not attempt:
         abort(404)
 
-    if u["role"] != "admin" and attempt["user_id"] != u["id"]:
+    if user["role"] != "admin" and attempt["user_id"] != user["id"]:
         abort(403)
 
     return render_template("result.html", attempt=attempt)
@@ -560,18 +572,22 @@ def admin():
         """).fetchone()["n"],
         "passrate": conn.execute("""
             SELECT ROUND(100.0*SUM(passed)/NULLIF(COUNT(*),0)) n
-            FROM attempts WHERE finished_at IS NOT NULL
+            FROM attempts
+            WHERE finished_at IS NOT NULL
         """).fetchone()["n"] or 0
     }
 
     tests = conn.execute("""
         SELECT t.*,
         (SELECT COUNT(*) FROM questions q WHERE q.test_id=t.id) qcount
-        FROM tests t ORDER BY t.id DESC
+        FROM tests t
+        ORDER BY t.id DESC
     """).fetchall()
 
     users = conn.execute("""
-        SELECT id,username,role,created_at FROM users ORDER BY id DESC
+        SELECT id,username,role,created_at
+        FROM users
+        ORDER BY id DESC
     """).fetchall()
 
     attempts = conn.execute("""
@@ -580,7 +596,8 @@ def admin():
         JOIN users u ON u.id=a.user_id
         JOIN tests t ON t.id=a.test_id
         WHERE a.finished_at IS NOT NULL
-        ORDER BY a.id DESC LIMIT 100
+        ORDER BY a.id DESC
+        LIMIT 100
     """).fetchall()
 
     internships = conn.execute(
@@ -625,6 +642,7 @@ def create_test():
 
     db().commit()
     flash("Экзамен создан. Теперь добавьте вопросы.", "success")
+
     return redirect(url_for("edit_test", test_id=cur.lastrowid))
 
 
@@ -643,36 +661,27 @@ def edit_test(test_id):
 
     if request.method == "POST":
         prompt = request.form.get("prompt", "").strip()
-
         options = [
-            request.form.get(k, "").strip()
-            for k in ("a", "b", "c", "d")
+            request.form.get(key, "").strip()
+            for key in ("a", "b", "c", "d")
         ]
 
         question_type = request.form.get("question_type", "single")
-
-        correct_list = request.form.getlist("correct")
-        correct_list = sorted(set(
-            a for a in correct_list
-            if a in ("A", "B", "C", "D")
-        ))
-
         if question_type not in ("single", "multiple"):
             question_type = "single"
 
-        valid = (
-            bool(prompt)
-            and all(options)
-            and bool(correct_list)
-            and (
-                question_type == "multiple"
-                or len(correct_list) == 1
-            )
-        )
+        correct_answers = request.form.getlist("correct")
+        correct_answers = sorted(set(
+            answer for answer in correct_answers
+            if answer in ("A", "B", "C", "D")
+        ))
 
-        if not valid:
+        if question_type == "single":
+            correct_answers = correct_answers[:1]
+
+        if not prompt or not all(options) or not correct_answers:
             flash(
-                "Заполните вопрос, все четыре ответа и отметьте правильные варианты.",
+                "Заполните вопрос, все четыре ответа и выберите правильный вариант.",
                 "danger"
             )
         else:
@@ -686,9 +695,9 @@ def edit_test(test_id):
                 test_id,
                 prompt,
                 *options,
-                correct_list[0],
+                correct_answers[0],
                 question_type,
-                json.dumps(correct_list)
+                json.dumps(correct_answers)
             ))
 
             conn.commit()
@@ -697,8 +706,20 @@ def edit_test(test_id):
         return redirect(url_for("edit_test", test_id=test_id))
 
     questions = conn.execute("""
-        SELECT * FROM questions WHERE test_id=? ORDER BY id
+        SELECT * FROM questions
+        WHERE test_id=?
+        ORDER BY id
     """, (test_id,)).fetchall()
+
+    questions = [
+        {
+            **dict(question),
+            "correct_display": ", ".join(
+                parse_correct_answers(question)
+            )
+        }
+        for question in questions
+    ]
 
     return render_template(
         "edit_test.html",
@@ -727,25 +748,26 @@ def test_settings(test_id):
 
     db().commit()
     flash("Настройки сохранены.", "success")
+
     return redirect(url_for("edit_test", test_id=test_id))
 
 
 @app.route("/admin/question/<int:question_id>/delete", methods=["POST"])
 @admin_required
 def delete_question(question_id):
-    q = db().execute(
+    question = db().execute(
         "SELECT test_id FROM questions WHERE id=?",
         (question_id,)
     ).fetchone()
 
-    if q:
+    if question:
         db().execute(
             "DELETE FROM questions WHERE id=?",
             (question_id,)
         )
         db().commit()
         flash("Вопрос удалён.", "success")
-        return redirect(url_for("edit_test", test_id=q["test_id"]))
+        return redirect(url_for("edit_test", test_id=question["test_id"]))
 
     abort(404)
 
@@ -789,6 +811,7 @@ def create_internship():
             INSERT INTO internships(title,details,status,created_at)
             VALUES(?,?,?,?)
         """, (title, details, "active", now()))
+
         db().commit()
         flash("Стажировка создана.", "success")
     else:
@@ -817,6 +840,7 @@ def assign_internship(internship_id):
                 )
                 VALUES(?,?,?,?)
             """, (internship_id, user["id"], "assigned", now()))
+
             db().commit()
             flash("Стажировка назначена.", "success")
         except sqlite3.IntegrityError:
@@ -859,11 +883,11 @@ def not_found(_):
 
 
 @app.errorhandler(400)
-def bad_request(e):
+def bad_request(error):
     return render_template(
         "error.html",
         code=400,
-        message=getattr(e, "description", "Некорректный запрос.")
+        message=getattr(error, "description", "Некорректный запрос.")
     ), 400
 
 
