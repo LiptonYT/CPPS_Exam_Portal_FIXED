@@ -12,14 +12,16 @@
 
     <div class="timer-box">
         <small>ОСТАЛОСЬ ВРЕМЕНИ</small>
-        <strong id="timer" data-seconds="{{ test.duration_minutes * 60 }}">
+        <strong id="timer"
+                data-seconds="{{ test.duration_minutes * 60 }}">
             {{ test.duration_minutes }}:00
         </strong>
     </div>
 </div>
 
 <div class="notice warning">
-    После отправки ответы нельзя изменить. По истечении времени экзамен будет отправлен автоматически.
+    После отправки ответы нельзя изменить.
+    По истечении времени экзамен будет отправлен автоматически.
 </div>
 
 <form method="post" id="exam-form" class="exam-form">
@@ -64,11 +66,9 @@
     </section>
     {% endfor %}
 
-    <button
-        class="btn btn-wide submit-exam"
-        type="submit"
-        onclick="return confirm('Отправить экзамен? После отправки ответы нельзя изменить.')"
-    >
+    <button class="btn btn-wide submit-exam"
+            type="submit"
+            onclick="return confirm('Отправить экзамен? После отправки ответы нельзя изменить.')">
         Завершить и отправить ответы →
     </button>
 </form>
