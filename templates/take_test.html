@@ -1,7 +1,103 @@
-{% extends "base.html" %}{% block title %}{{ test.title }} — ЦППС{% endblock %}{% block content %}
-<div class="exam-head"><div><div class="eyebrow">ЦППС / АТТЕСТАЦИЯ</div><h1>{{ test.title }}</h1><p>{{ test.description }}</p></div><div class="timer-box"><small>ОСТАЛОСЬ ВРЕМЕНИ</small><strong id="timer" data-seconds="{{ test.duration_minutes * 60 }}">{{ test.duration_minutes }}:00</strong></div></div>
-<div class="notice warning">После отправки ответы нельзя изменить. По истечении времени экзамен будет отправлен автоматически.</div>
-<form method="post" id="exam-form" class="exam-form"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="attempt_id" value="{{ attempt_id }}">{% for q in questions %}<section class="question panel"><div class="q-label">ВОПРОС {{ loop.index }} <span>{{ loop.index }} / {{ questions|length }}</span></div><h3>{{ q.prompt }}</h3><div class="answers">{% for letter,text in [('A',q.a),('B',q.b),('C',q.c),('D',q.d)] %}<label class="answer"><input type="radio" name="q_{{ q.id }}" value="{{ letter }}"><span class="answer-letter">{{ letter }}</span><span>{{ text }}</span></label>{% endfor %}</div></section>{% endfor %}<button class="btn btn-wide submit-exam" type="submit" onclick="return confirm('Отправить экзамен? После отправки ответы нельзя изменить.')">Завершить и отправить ответы →</button></form>
-{% endblock %}{% block scripts %}<script>
-(() => {const timer=document.getElementById('timer'),form=document.getElementById('exam-form');let left=Number(timer.dataset.seconds);function tick(){const m=Math.floor(left/60),s=left%60;timer.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');if(left<=0){form.submit();return;}left--;}tick();setInterval(tick,1000);})();
-</script>{% endblock %}
+
+{% extends "base.html" %}
+{% block title %}{{ test.title }} — ЦППС{% endblock %}
+
+{% block content %}
+<div class="exam-head">
+    <div>
+        <div class="eyebrow">ЦППС / АТТЕСТАЦИЯ</div>
+        <h1>{{ test.title }}</h1>
+        <p>{{ test.description }}</p>
+    </div>
+
+    <div class="timer-box">
+        <small>ОСТАЛОСЬ ВРЕМЕНИ</small>
+        <strong id="timer" data-seconds="{{ test.duration_minutes * 60 }}">{{ test.duration_minutes }}:00</strong>
+    </div>
+</div>
+
+<div class="notice warning">
+    После отправки ответы нельзя изменить. По истечении времени экзамен будет отправлен автоматически.
+</div>
+
+<form method="post" id="exam-form" class="exam-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="attempt_id" value="{{ attempt_id }}">
+
+    {% for q in questions %}
+    <section class="question panel">
+        <div class="q-label">
+            ВОПРОС {{ loop.index }}
+            <span>{{ loop.index }} / {{ questions|length }}</span>
+        </div>
+
+        <h3>{{ q.prompt }}</h3>
+
+        <div class="answers">
+            {% for letter, text in [('A', q.a), ('B', q.b), ('C', q.c), ('D', q.d)] %}
+            <label class="answer">
+                <input
+                    type="{{ 'checkbox' if q.question_type == 'multiple' else 'radio' }}"
+                    name="q_{{ q.id }}"
+                    value="{{ letter }}"
+                >
+                <span class="answer-letter">{{ letter }}</span>
+                <span>{{ text }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+
+    <button
+        class="btn btn-wide submit-exam"
+        type="submit"
+        onclick="return confirm('Отправить экзамен? После отправки ответы нельзя изменить.')"
+    >
+        Завершить и отправить ответы →
+    </button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+    const timer = document.getElementById('timer');
+    const form = document.getElementById('exam-form');
+
+    let left = Number(timer.dataset.seconds);
+    let submitted = false;
+
+    function tick() {
+        const minutes = Math.floor(left / 60);
+        const seconds = left % 60;
+
+        timer.textContent =
+            String(minutes).padStart(2, '0') + ':' +
+            String(seconds).padStart(2, '0');
+
+        if (left <= 0) {
+            if (!submitted) {
+                submitted = true;
+                form.submit();
+            }
+            return;
+        }
+
+        left--;
+    }
+
+    form.addEventListener('submit', () => {
+        submitted = true;
+    });
+
+    tick();
+
+    setInterval(() => {
+        if (!submitted) {
+            tick();
+        }
+    }, 1000);
+})();
+</script>
+{% endblock %}
