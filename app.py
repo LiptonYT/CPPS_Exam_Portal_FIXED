@@ -46,6 +46,8 @@ def init_db():
       id INTEGER PRIMARY KEY, test_id INTEGER NOT NULL, prompt TEXT NOT NULL,
       a TEXT NOT NULL, b TEXT NOT NULL, c TEXT NOT NULL, d TEXT NOT NULL,
       correct TEXT NOT NULL CHECK(correct IN ('A','B','C','D')),
+      question_type TEXT NOT NULL DEFAULT 'single',
+      correct_answers TEXT NOT NULL DEFAULT '[]',
       FOREIGN KEY(test_id) REFERENCES tests(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS attempts(
       id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, test_id INTEGER NOT NULL,
@@ -64,6 +66,13 @@ def init_db():
       FOREIGN KEY(internship_id) REFERENCES internships(id) ON DELETE CASCADE,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
     """)
+    # Миграция существующей базы: добавляем поддержку нескольких правильных ответов
+    # без удаления существующих вопросов, экзаменов или результатов.
+    question_columns = {row[1] for row in conn.execute("PRAGMA table_info(questions)").fetchall()}
+    if "question_type" not in question_columns:
+        conn.execute("ALTER TABLE questions ADD COLUMN question_type TEXT NOT NULL DEFAULT 'single'")
+    if "correct_answers" not in question_columns:
+        conn.execute("ALTER TABLE questions ADD COLUMN correct_answers TEXT NOT NULL DEFAULT '[]'")
     # Миграция существующей базы: добавляем данные экзамена без удаления старых результатов.
     attempt_columns = {row[1] for row in conn.execute("PRAGMA table_info(attempts)").fetchall()}
     for column in ("cadet_full_name", "cadet_static", "examiner_full_name"):
@@ -207,7 +216,7 @@ def take_test(test_id):
         if used >= test["max_attempts"]:
             flash("Лимит попыток для этого экзамена исчерпан.", "warning")
             return redirect(url_for("tests_list"))
-        questions = conn.execute("SELECT id,prompt,a,b,c,d FROM questions WHERE test_id=? ORDER BY id", (test_id,)).fetchall()
+        questions = conn.execute("SELECT id,prompt,a,b,c,d,question_type,correct_answers,correct FROM questions WHERE test_id=? ORDER BY id", (test_id,)).fetchall()
         if not questions:
             flash("В этом тесте пока нет вопросов.", "warning")
             return redirect(url_for("tests_list"))
@@ -233,10 +242,21 @@ def take_test(test_id):
     answers = {}
     score = 0
     for q in questions:
-        ans = request.form.get(f"q_{q['id']}", "")
-        if ans in ("A","B","C","D"):
-            answers[str(q["id"])] = ans
-            if ans == q["correct"]: score += 1
+        if q["question_type"] == "multiple":
+            selected = sorted(set(x for x in request.form.getlist(f"q_{q['id']}") if x in ("A","B","C","D")))
+            if selected:
+                answers[str(q["id"])] = selected
+            try:
+                expected = sorted(set(json.loads(q["correct_answers"] or "[]")))
+            except (ValueError, TypeError):
+                expected = [q["correct"]]
+            if selected and selected == expected:
+                score += 1
+        else:
+            ans = request.form.get(f"q_{q['id']}", "")
+            if ans in ("A","B","C","D"):
+                answers[str(q["id"])] = ans
+                if ans == q["correct"]: score += 1
     total = len(questions)
     percent = round(score * 100 / total) if total else 0
     passed = int(percent >= test["pass_percent"] and elapsed <= test["duration_minutes"] * 60 + 10)
@@ -313,12 +333,19 @@ def edit_test(test_id):
     if request.method == "POST":
         prompt = request.form.get("prompt","").strip()
         options = [request.form.get(k,"").strip() for k in ("a","b","c","d")]
+        question_type = request.form.get("question_type", "single")
         correct = request.form.get("correct","A")
-        if not prompt or not all(options) or correct not in ("A","B","C","D"):
-            flash("Заполните вопрос, все четыре ответа и правильный вариант.", "danger")
+        correct_answers = sorted(set(x for x in request.form.getlist("correct_answers") if x in ("A","B","C","D")))
+        valid_single = question_type == "single" and correct in ("A","B","C","D")
+        valid_multiple = question_type == "multiple" and len(correct_answers) >= 2
+        if not prompt or not all(options) or not (valid_single or valid_multiple):
+            flash("Заполните вопрос, все четыре варианта и отметьте правильный ответ (для нескольких ответов — минимум два).", "danger")
         else:
-            conn.execute("INSERT INTO questions(test_id,prompt,a,b,c,d,correct) VALUES(?,?,?,?,?,?,?)",
-                         (test_id,prompt,*options,correct))
+            if question_type == "multiple":
+                correct = correct_answers[0]  # Для совместимости со старыми записями.
+            conn.execute("""INSERT INTO questions(test_id,prompt,a,b,c,d,correct,question_type,correct_answers)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
+                (test_id,prompt,*options,correct,question_type,json.dumps(correct_answers if question_type == "multiple" else [correct])))
             conn.commit()
             flash("Вопрос добавлен.", "success")
         return redirect(url_for("edit_test_alias", test_id=test_id))
@@ -380,6 +407,21 @@ def create_internship():
         flash("Стажировка создана.", "success")
     else:
         flash("Заполните название и описание стажировки.", "danger")
+    return redirect(url_for("admin"))
+
+@app.route("/admin/internship/<int:internship_id>/delete", methods=["POST"])
+@admin_required
+def delete_internship(internship_id):
+    conn = db()
+    internship = conn.execute("SELECT id FROM internships WHERE id=?", (internship_id,)).fetchone()
+    if not internship:
+        flash("Стажировка уже удалена или не найдена.", "warning")
+        return redirect(url_for("admin"))
+    # Удаляем назначения курсантам вместе со стажировкой.
+    conn.execute("DELETE FROM internship_assignments WHERE internship_id=?", (internship_id,))
+    conn.execute("DELETE FROM internships WHERE id=?", (internship_id,))
+    conn.commit()
+    flash("Стажировка и связанные назначения курсантам удалены.", "success")
     return redirect(url_for("admin"))
 
 @app.route("/admin/internship/<int:internship_id>/assign", methods=["POST"])
