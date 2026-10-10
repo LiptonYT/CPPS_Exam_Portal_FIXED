@@ -1,1 +1,54 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Результат — ЦППС</title><style>body{margin:0;padding:24px;background:#0b1018;color:#eef2f7;font:16px/1.5 Arial}.wrap{max-width:760px;margin:40px auto;background:#151d29;border:1px solid #303b4c;border-radius:16px;padding:26px}h1,h2{color:#eab447}.row{padding:12px 0;border-bottom:1px solid #303b4c}.label{color:#a7b0bf}.passed{color:#45d483;font-weight:bold}.failed{color:#ff7373;font-weight:bold}a{color:#eab447}</style></head><body><main class="wrap"><p>ЦППС • РЕЗУЛЬТАТ ЭКЗАМЕНА</p><h1>{{ attempt.title }}</h1><div class="row"><span class="label">Курсант:</span> <b>{{ attempt.cadet_full_name or current_user.username }}</b></div><div class="row"><span class="label">Статик:</span> <b>{{ attempt.cadet_static or '—' }}</b></div><div class="row"><span class="label">Экзаменатор:</span> <b>{{ attempt.examiner_full_name or '—' }}</b></div><div class="row"><span class="label">Результат:</span> <b>{{ attempt.score or 0 }} из {{ attempt.total or 0 }}</b>{% if attempt.total %} ({{ ((attempt.score or 0)*100/attempt.total)|round|int }}%){% endif %}</div><div class="row"><span class="label">Статус:</span> {% if attempt.passed %}<span class="passed">ЭКЗАМЕН СДАН</span>{% else %}<span class="failed">ЭКЗАМЕН НЕ СДАН</span>{% endif %}</div><div class="row"><span class="label">Дата завершения:</span> {{ attempt.finished_at or '—' }}</div><p><a href="{{ url_for('dashboard') }}">Вернуться в личный кабинет</a> · <a href="{{ url_for('tests_list') }}">К экзаменам</a>{% if current_user and current_user.role=='admin' %} · <a href="{{ url_for('admin') }}">Админ-панель</a>{% endif %}</p></main></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Результат — ЦППС | Экзамены курсантов</title>
+  <style>
+    :root{--bg:#090e16;--panel:#141d2a;--panel2:#101722;--gold:#eab447;--text:#eef2f7;--muted:#a7b0bf;--line:#303b4c;--green:#3cdb91;--red:#ff7078}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;padding:28px 16px;background:radial-gradient(ellipse at top,#1b2c42 0,#090e16 62%);color:var(--text);font:16px/1.55 Arial,sans-serif}
+    .wrap{max-width:850px;margin:22px auto}.brand{display:flex;align-items:center;gap:10px;color:var(--gold);font-size:12px;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px}.brand-mark{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:#eab44718;border:1px solid #eab44755;font-size:20px}
+    .panel{background:linear-gradient(145deg,#172231,#111823);border:1px solid var(--line);border-radius:22px;overflow:hidden;box-shadow:0 24px 70px #0005}.hero{padding:30px;border-bottom:1px solid var(--line);position:relative;overflow:hidden}.hero:after{content:"";position:absolute;width:230px;height:230px;border-radius:50%;right:-75px;top:-110px;background:currentColor;opacity:.055;pointer-events:none}.hero.pass{color:var(--green)}.hero.fail{color:var(--red)}
+    .status-row{display:flex;align-items:center;gap:18px;position:relative;z-index:1}.status-icon{flex:0 0 66px;width:66px;height:66px;border-radius:20px;display:grid;place-items:center;font-size:35px;font-weight:900;background:currentColor;color:#0b1118}.eyebrow{font-size:12px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase;opacity:.9}.hero h1{font-size:clamp(25px,5vw,38px);line-height:1.15;margin:6px 0;color:var(--text)}.verdict{display:inline-flex;align-items:center;margin-top:5px;padding:7px 13px;border-radius:8px;background:currentColor;color:#0b1118;font-size:13px;font-weight:900;letter-spacing:1px}.subtitle{margin:12px 0 0;color:var(--muted);max-width:620px}.content{padding:26px 30px 30px}.section-title{font-size:12px;color:var(--muted);font-weight:900;letter-spacing:1.5px;text-transform:uppercase;margin:0 0 14px}
+    .scorebox{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:22px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:24px}.ring{width:112px;height:112px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--score-color) calc(var(--percent)*1%),#2a3545 0);position:relative}.ring:before{content:"";position:absolute;inset:8px;background:var(--panel2);border-radius:50%}.ring-inner{position:relative;text-align:center}.percent{font-size:27px;font-weight:900;color:var(--text);line-height:1.1}.percent-label{font-size:11px;color:var(--muted);font-weight:700}.score-big{font-size:24px;font-weight:900;color:var(--text)}.score-caption{font-size:13px;color:var(--muted);margin-top:3px}.progress{height:7px;background:#293445;border-radius:20px;overflow:hidden;margin-top:12px}.progress span{display:block;height:100%;width:calc(var(--percent)*1%);background:var(--score-color);border-radius:20px}.threshold{font-size:12px;color:var(--muted);margin-top:9px}
+    .details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.detail{padding:15px 16px;background:#0f1621;border:1px solid #293445;border-radius:12px;min-width:0}.label{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}.value{display:block;color:var(--text);font-weight:700;overflow-wrap:anywhere}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;padding:12px 17px;border-radius:10px;font-weight:800;border:1px solid var(--line);color:var(--text);background:#1b2635}.btn.primary{background:var(--gold);border-color:var(--gold);color:#17130a}.btn:hover{filter:brightness(1.08)}
+    @media(max-width:560px){body{padding:14px 10px}.wrap{margin:8px auto}.hero,.content{padding:20px}.status-row{align-items:flex-start;gap:13px}.status-icon{flex-basis:52px;width:52px;height:52px;border-radius:15px;font-size:28px}.scorebox{grid-template-columns:84px 1fr;gap:14px;padding:14px}.ring{width:82px;height:82px}.ring:before{inset:6px}.percent{font-size:21px}.details{grid-template-columns:1fr}.actions .btn{flex:1}}
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <div class="brand"><span class="brand-mark">★</span><span>ЦППС · Экзамены курсантов</span></div>
+  <section class="panel">
+    {% set percent = (((attempt.score or 0) * 100 / attempt.total)|round|int) if attempt.total else 0 %}
+    {% if attempt.passed %}
+      <header class="hero pass">
+        <div class="status-row"><div class="status-icon" aria-hidden="true">✓</div><div><div class="eyebrow">Экзамен завершён</div><h1>Поздравляем!</h1><span class="verdict">ЗАЧЁТ</span></div></div>
+        <p class="subtitle">Экзамен успешно сдан. Результат сохранён в системе ЦППС.</p>
+      </header>
+    {% else %}
+      <header class="hero fail">
+        <div class="status-row"><div class="status-icon" aria-hidden="true">×</div><div><div class="eyebrow">Экзамен завершён</div><h1>Экзамен не сдан</h1><span class="verdict">НЕ ЗАЧЁТ</span></div></div>
+        <p class="subtitle">Необходимый проходной результат не достигнут либо время экзамена истекло. Результат сохранён в системе ЦППС.</p>
+      </header>
+    {% endif %}
+    <div class="content">
+      <p class="section-title">Итоговый результат</p>
+      <div class="scorebox" style="--percent:{{ percent }};--score-color:{% if attempt.passed %}var(--green){% else %}var(--red){% endif %}">
+        <div class="ring"><div class="ring-inner"><div class="percent">{{ percent }}%</div><div class="percent-label">РЕЗУЛЬТАТ</div></div></div>
+        <div><div class="score-big">{{ attempt.score or 0 }} из {{ attempt.total or 0 }} баллов</div><div class="score-caption">Правильных ответов по экзамену</div><div class="progress"><span></span></div><div class="threshold">Проходной балл: {{ attempt.pass_percent }}%</div></div>
+      </div>
+      <p class="section-title">Данные экзамена</p>
+      <div class="details">
+        <div class="detail"><span class="label">Экзамен</span><span class="value">{{ attempt.title }}</span></div>
+        <div class="detail"><span class="label">Курсант</span><span class="value">{{ attempt.cadet_full_name or current_user.username }}</span></div>
+        <div class="detail"><span class="label">Статик курсанта</span><span class="value">{{ attempt.cadet_static or '—' }}</span></div>
+        <div class="detail"><span class="label">Экзаменатор</span><span class="value">{{ attempt.examiner_full_name or '—' }}</span></div>
+        <div class="detail"><span class="label">Статус экзамена</span><span class="value">{% if attempt.passed %}✓ Зачёт{% else %}× Не зачёт{% endif %}</span></div>
+        <div class="detail"><span class="label">Дата завершения</span><span class="value">{{ attempt.finished_at or '—' }}</span></div>
+      </div>
+      <nav class="actions"><a class="btn primary" href="{{ url_for('dashboard') }}">Личный кабинет</a><a class="btn" href="{{ url_for('tests_list') }}">К экзаменам</a>{% if current_user and current_user.role=='admin' %}<a class="btn" href="{{ url_for('admin') }}">Админ-панель</a>{% endif %}</nav>
+    </div>
+  </section>
+</main>
+</body>
+</html>
