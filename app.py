@@ -296,7 +296,13 @@ def create_test():
         1 if request.form.get("published")=="on" else 0, current_user()["id"], now()))
     db().commit()
     flash("Экзамен создан. Теперь добавьте вопросы.", "success")
-    return redirect(url_for("edit_test", test_id=cur.lastrowid))
+    return redirect(url_for("edit_test_alias", test_id=cur.lastrowid))
+
+@app.route("/admin/test/<int:test_id>/edit", methods=["GET","POST"], endpoint="edit_test_alias")
+@admin_required
+def edit_test_alias(test_id):
+    # Отдельный стабильный URL редактора; нужен для совместимости с размещённой версией сайта.
+    return edit_test(test_id)
 
 @app.route("/admin/test/<int:test_id>", methods=["GET","POST"])
 @admin_required
@@ -315,7 +321,7 @@ def edit_test(test_id):
                          (test_id,prompt,*options,correct))
             conn.commit()
             flash("Вопрос добавлен.", "success")
-        return redirect(url_for("edit_test", test_id=test_id))
+        return redirect(url_for("edit_test_alias", test_id=test_id))
     questions = conn.execute("SELECT * FROM questions WHERE test_id=? ORDER BY id", (test_id,)).fetchall()
     return render_template("edit_test.html", test=test, questions=questions)
 
@@ -329,7 +335,7 @@ def test_settings(test_id):
          safe_int(request.form.get("max_attempts"),2,1,20), 1 if request.form.get("published")=="on" else 0, test_id))
     db().commit()
     flash("Настройки сохранены.", "success")
-    return redirect(url_for("edit_test", test_id=test_id))
+    return redirect(url_for("edit_test_alias", test_id=test_id))
 
 @app.route("/admin/question/<int:question_id>/delete", methods=["POST"])
 @admin_required
@@ -339,7 +345,7 @@ def delete_question(question_id):
         db().execute("DELETE FROM questions WHERE id=?", (question_id,))
         db().commit()
         flash("Вопрос удалён.", "success")
-        return redirect(url_for("edit_test", test_id=q["test_id"]))
+        return redirect(url_for("edit_test_alias", test_id=q["test_id"]))
     abort(404)
 
 @app.route("/admin/test/<int:test_id>/delete", methods=["POST"])
